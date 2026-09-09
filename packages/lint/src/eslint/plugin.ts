@@ -13,6 +13,7 @@
  *     rules: {
  *       // Opt-in; not included in the recommended preset:
  *       "logtape/no-dynamic-message": "warn",
+ *       "logtape/no-unrendered-properties": "warn",
  *       "logtape/no-message-interpolation": "error",
  *       "logtape/prefer-lazy-evaluation": "warn",
  *       "logtape/no-unawaited-log": "error",
@@ -35,12 +36,14 @@ import type { Linter, Rule } from "eslint";
 import { noDynamicMessage } from "../rules/no-dynamic-message.ts";
 import { noMessageInterpolation } from "../rules/no-message-interpolation.ts";
 import { noUnawaitedLog } from "../rules/no-unawaited-log.ts";
+import { noUnrenderedProperties } from "../rules/no-unrendered-properties.ts";
 import { preferLazyEvaluation } from "../rules/prefer-lazy-evaluation.ts";
 import { requireMetaSink } from "../rules/require-meta-sink.ts";
 
 export { noDynamicMessage } from "../rules/no-dynamic-message.ts";
 export { noMessageInterpolation } from "../rules/no-message-interpolation.ts";
 export { noUnawaitedLog } from "../rules/no-unawaited-log.ts";
+export { noUnrenderedProperties } from "../rules/no-unrendered-properties.ts";
 export { preferLazyEvaluation } from "../rules/prefer-lazy-evaluation.ts";
 export { requireMetaSink } from "../rules/require-meta-sink.ts";
 
@@ -52,6 +55,7 @@ export const rules: Record<string, Rule.RuleModule> = {
   "no-message-interpolation": noMessageInterpolation,
   "prefer-lazy-evaluation": preferLazyEvaluation,
   "no-unawaited-log": noUnawaitedLog,
+  "no-unrendered-properties": noUnrenderedProperties,
   "require-meta-sink": requireMetaSink,
 };
 

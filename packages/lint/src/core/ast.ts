@@ -19,6 +19,8 @@
 // on `any` nodes by design.
 // deno-lint-ignore-file no-explicit-any
 
+import { getUnreferencedKeys } from "./message-template.ts";
+
 /**
  * Log method names that the LogTape lint rules check.
  */
@@ -118,6 +120,67 @@ export function unwrapTypeAssertion(node: any): any {
     node = node.expression;
   }
   return node;
+}
+
+/** A call-site property and the key node to report. */
+export interface UnrenderedProperty {
+  readonly key: string;
+  readonly node: any;
+}
+
+/**
+ * Find unreferenced fields in a static message and explicit properties object.
+ * Opaque arguments and objects with unknown keys are left to the caller.
+ */
+export function findUnrenderedProperties(
+  args: readonly any[],
+): readonly UnrenderedProperty[] {
+  const template = staticMessageText(unwrapTypeAssertion(args[0]));
+  if (template === null) return [];
+  let object = unwrapTypeAssertion(args[1]);
+  if (object?.type === "ArrowFunctionExpression") {
+    object = unwrapTypeAssertion(object.body);
+  }
+  if (object?.type !== "ObjectExpression") return [];
+  const properties = new Map<string, any>();
+  for (const property of object.properties) {
+    if (property.type !== "Property") return [];
+    const keyNode = unwrapTypeAssertion(property.key);
+    let key: string | null;
+    if (!property.computed && keyNode?.type === "Identifier") {
+      key = keyNode.name;
+    } else if (
+      keyNode?.type === "Literal" && typeof keyNode.value === "number"
+    ) {
+      key = String(keyNode.value);
+    } else {
+      key = staticMessageText(keyNode);
+    }
+    if (key === null) return [];
+    if (
+      key === "__proto__" && !property.computed && !property.shorthand &&
+      !property.method && property.kind === "init"
+    ) continue;
+    properties.set(key, property.key);
+  }
+  return getUnreferencedKeys(template, [...properties.keys()]).map((key) => ({
+    key,
+    node: properties.get(key),
+  }));
+}
+
+function staticMessageText(node: any): string | null {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+  if (
+    node?.type === "TemplateLiteral" && node.expressions?.length === 0 &&
+    node.quasis?.length === 1
+  ) {
+    const cooked = node.quasis[0]?.value?.cooked ?? node.quasis[0]?.cooked;
+    return typeof cooked === "string" ? cooked : null;
+  }
+  return null;
 }
 
 /**

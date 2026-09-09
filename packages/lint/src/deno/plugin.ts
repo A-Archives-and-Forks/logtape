@@ -24,7 +24,8 @@
  * ```
  *
  * Use `jsr:@logtape/lint/deno/strict` instead to enable the opt-in
- * `logtape/no-dynamic-message` rule.
+ * `logtape/no-dynamic-message` and `logtape/no-unrendered-properties` rules.
+ * Use `lint.rules.exclude` to disable either rule individually.
  *
  * The rule detection logic is shared with the ESLint rules via `../core/ast.ts`;
  * only the scope tracking (which the Deno Lint API does not provide a manager
@@ -42,6 +43,7 @@ import {
   configNeedsMetaSink,
   containsAwaitOrYield,
   ERROR_LOG_METHODS,
+  findUnrenderedProperties,
   isAsyncFunctionExpr,
   isLogPromiseHandled,
   isLogtapeImportSource,
@@ -1092,6 +1094,29 @@ export const strictPlugin: {
   name: "logtape",
 
   rules: {
+    /** Find properties not referenced by a static message template. */
+    "no-unrendered-properties": {
+      create(ctx: any) {
+        const scope = makeLoggerScope(ctx.sourceCode?.text ?? "");
+        return {
+          ...scope.visitors,
+          CallExpression(node: any) {
+            if (!scope.isLogtapeCallee(node.callee)) return;
+            const method = logMethodName(node.callee);
+            if (!method || !LOG_METHODS.has(method)) return;
+            for (const property of findUnrenderedProperties(node.arguments)) {
+              ctx.report({
+                node: property.node,
+                message:
+                  `Property '${property.key}' is not referenced by the ` +
+                  "message template and may be omitted by sinks that output " +
+                  "only the message.",
+              });
+            }
+          },
+        };
+      },
+    },
     /** Disallow dynamic expressions in log message arguments. */
     "no-dynamic-message": {
       create(ctx: any) {

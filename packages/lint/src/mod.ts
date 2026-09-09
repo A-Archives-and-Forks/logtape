@@ -13,6 +13,7 @@ export {
   noDynamicMessage,
   noMessageInterpolation,
   noUnawaitedLog,
+  noUnrenderedProperties,
   plugin,
   plugin as default,
   preferLazyEvaluation,

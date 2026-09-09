@@ -28,11 +28,13 @@ Rules
 | `no-message-interpolation` | error            | no                |
 | `prefer-lazy-evaluation`   | warn             | yes               |
 | `no-unawaited-log`         | error            | yes (conditional) |
+| `no-unrendered-properties` | off              | no                |
 | `require-meta-sink`        | warn             | no                |
 
 For Deno Lint, the default `@logtape/lint/deno` entry point contains the four
 recommended rules.  Use `@logtape/lint/deno/strict` instead when explicitly
-enabling `no-dynamic-message`.
+enabling `no-dynamic-message` or `no-unrendered-properties`.  The strict
+entry point enables both; use `lint.rules.exclude` to disable either one.
 
 
 Installation
