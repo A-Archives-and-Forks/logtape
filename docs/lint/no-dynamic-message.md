@@ -1,6 +1,8 @@
 `no-dynamic-message`
 ====================
 
+*This rule is introduced in LogTape 2.4.0.*
+
 Disallow dynamic expressions in LogTape log message arguments.
 
 | Severity | Fixable | Category             |
@@ -112,14 +114,13 @@ Deno Lint (`deno.json`):
   "lint": {
     "plugins": ["jsr:@logtape/lint/deno/strict"],
     "rules": {
-      "include": [
-        "logtape/no-dynamic-message",
-        "logtape/no-message-interpolation"
-      ]
+      "exclude": ["logtape/no-unrendered-properties"]
     }
   }
 }
 ~~~~
 
 The default `@logtape/lint/deno` entry point excludes this opt-in rule.  Use
-the `/deno/strict` entry point in its place when enabling the rule.
+the `/deno/strict` entry point in its place when enabling the rule.  This entry
+point also includes `no-unrendered-properties`; the example excludes that rule
+so properties can remain outside the message template.

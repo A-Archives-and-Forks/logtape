@@ -2,6 +2,7 @@
 // configured.  They only run under Deno.
 import assert from "node:assert/strict";
 import test from "node:test";
+import defaultPlugin, { strictPlugin } from "./plugin.ts";
 
 const isDenoRuntime = typeof Deno !== "undefined";
 
@@ -20,6 +21,10 @@ interface LintOutput {
 async function lintWithPlugin(
   sourceCode: string,
   includeRules?: string[],
+  options: {
+    readonly entryPoint?: "default" | "strict";
+    readonly exclude?: readonly string[];
+  } = {},
 ): Promise<Diagnostic[]> {
   if (!isDenoRuntime) return [];
   // @ts-ignore: Deno-only API
@@ -28,17 +33,32 @@ async function lintWithPlugin(
     // Pass the plugin as a file:// URL specifier.  An OS path (e.g. from
     // fileURLToPath) is `D:\...` on Windows, which deno.json's `plugins` array
     // does not accept; a file:// URL resolves correctly on every platform.
-    const pluginFile = includeRules?.includes(
-        "logtape/no-dynamic-message",
-      )
-      ? "./strict-plugin.ts"
-      : "./plugin.ts";
+    const strict = options.entryPoint != null
+      ? options.entryPoint === "strict"
+      : includeRules?.some((rule) =>
+        rule === "logtape/no-dynamic-message" ||
+        rule === "logtape/no-unrendered-properties"
+      );
+    const pluginFile = strict ? "./strict-plugin.ts" : "./plugin.ts";
+    // Deno can silently ignore unknown include names.  Prove the selected
+    // entry point actually exposes every requested LogTape rule first.
+    for (const rule of includeRules ?? []) {
+      if (rule.startsWith("logtape/")) {
+        assert.ok(
+          Object.hasOwn(
+            (strict ? strictPlugin : defaultPlugin).rules,
+            rule.slice("logtape/".length),
+          ),
+          `Unknown LogTape rule for ${pluginFile}: ${rule}`,
+        );
+      }
+    }
     const pluginUrl = new URL(pluginFile, import.meta.url).href;
     const denoJson = {
       unstable: ["lint"],
       lint: {
         plugins: [pluginUrl],
-        rules: includeRules == null ? undefined : { include: includeRules },
+        rules: { include: includeRules, exclude: options.exclude },
       },
     };
     // @ts-ignore: Deno-only API
@@ -56,7 +76,7 @@ async function lintWithPlugin(
       stdout: "piped",
       stderr: "piped",
     });
-    const { stdout, stderr } = await cmd.output();
+    const { stdout, stderr, code } = await cmd.output();
     const text = new TextDecoder().decode(stdout);
     // `deno lint --json` always prints a JSON document to stdout, even with
     // zero diagnostics.  Empty stdout therefore means the lint run itself
@@ -67,7 +87,10 @@ async function lintWithPlugin(
       throw new Error(`deno lint produced no output. stderr:\n${err}`);
     }
     const parsed = JSON.parse(text) as LintOutput;
-    return parsed.diagnostics ?? [];
+    assert.deepStrictEqual(parsed.errors, [], new TextDecoder().decode(stderr));
+    assert.ok(Array.isArray(parsed.diagnostics), "Missing lint diagnostics");
+    assert.strictEqual(code, parsed.diagnostics.length === 0 ? 0 : 1);
+    return parsed.diagnostics;
   } finally {
     // @ts-ignore: Deno-only API
     await Deno.remove(tmpDir, { recursive: true });
@@ -116,6 +139,7 @@ async function lintAndFix(
 }
 
 const ALL_RULES = [
+  "logtape/no-unrendered-properties",
   "logtape/no-dynamic-message",
   "logtape/no-message-interpolation",
   "logtape/prefer-lazy-evaluation",
@@ -2453,5 +2477,162 @@ function scope() {
         JSON.stringify(violations)
       }`,
     );
+  },
+);
+
+const unrenderedRule = "logtape/no-unrendered-properties";
+const dynamicRule = "logtape/no-dynamic-message";
+const optionalRulesSource = `import { getLogger } from "@logtape/logtape";
+const logger = getLogger("test");
+declare const message: string;
+logger.info(message);
+logger.info("Ready", { id: 1 });`;
+
+for (
+  const [name, entryPoint, exclude, expected] of [
+    ["default excludes optional rules", "default", [], []],
+    ["strict enables both optional rules", "strict", [], [
+      dynamicRule,
+      unrenderedRule,
+    ]],
+    ["strict excludes unrendered properties", "strict", [unrenderedRule], [
+      dynamicRule,
+    ]],
+    ["strict excludes dynamic messages", "strict", [dynamicRule], [
+      unrenderedRule,
+    ]],
+  ] as const
+) {
+  test(`deno lint: ${name}`, { skip: skipIfNotDeno }, async () => {
+    if (skipIfNotDeno) return;
+    const diagnostics = await lintWithPlugin(optionalRulesSource, undefined, {
+      entryPoint,
+      exclude,
+    });
+    assert.deepStrictEqual(
+      diagnostics.map((d) => d.code).sort(),
+      [...expected].sort(),
+    );
+  });
+}
+
+test("deno lint: including unrendered properties selects strict", {
+  skip: skipIfNotDeno,
+}, async () => {
+  if (skipIfNotDeno) return;
+  const diagnostics = await lintWithPlugin(optionalRulesSource, [
+    unrenderedRule,
+  ], {
+    exclude: [dynamicRule],
+  });
+  assert.deepStrictEqual(diagnostics.map((d) => d.code), [unrenderedRule]);
+});
+
+test("deno lint: rejects unknown rules instead of returning no diagnostics", {
+  skip: skipIfNotDeno,
+}, async () => {
+  if (skipIfNotDeno) return;
+  await assert.rejects(() =>
+    lintWithPlugin(optionalRulesSource, ["logtape/not-a-rule"])
+  );
+});
+
+test(
+  "deno lint: unrendered properties handles static syntax and key locations",
+  { skip: skipIfNotDeno },
+  async () => {
+    if (skipIfNotDeno) return;
+    const source =
+      `import { getLogger as get } from "jsr:@logtape/logtape@^2.0.0";
+const logger = get("test");
+const a = 1, b = 2;
+logger.info("{a}", { a, b });
+logger.warn(\`{a}\`, () => ({ a, b }));
+await logger.error(("{a}" as const)!, async () => (({ a, b }) as const));
+logger.warning("{a}", { ["a"]: a, [\`b\`]: b });
+logger.trace("{1000}", { 1e3: a, [2]: b });
+logger.fatal("{*}", { "*": undefined, b });
+logger.with({ context: 1 }).getChild("child").debug("Ready", { b });
+get("inline").info("Ready", { b });`;
+    const diagnostics = (await lintWithPlugin(source, [unrenderedRule])).filter(
+      (d) => d.code === unrenderedRule,
+    );
+    assert.deepStrictEqual(
+      diagnostics.map((d) => d.code),
+      Array(8).fill(unrenderedRule),
+    );
+    assert.strictEqual(
+      diagnostics.filter((d) => d.message.includes("Property 'b'")).length,
+      7,
+    );
+    assert.strictEqual(
+      diagnostics.filter((d) => d.message.includes("Property '2'")).length,
+      1,
+    );
+  },
+);
+
+test(
+  "deno lint: unrendered properties preserves supported templates and overloads",
+  { skip: skipIfNotDeno },
+  async () => {
+    if (skipIfNotDeno) return;
+    const source = `import { getLogger } from "@logtape/logtape";
+const logger = getLogger("test");
+const user = { name: "Ada" }, error = new Error("Oops");
+logger.info("{user?.name}", { user });
+logger.info("{[user].name}", { user });
+logger.info('{["0"].name}', { 0: user });
+logger.info("{0.name}", { 0: user });
+logger.info("{error.message}", { "error.message": undefined, error });
+logger.info("{a{b}", { "a{b": 1 });
+logger.info("{*}", { user, error });
+logger.with({ contextId: 1 }).info("Ready", {});
+logger.info("Ready", { user, ...{ error } });
+logger.info("Ready", { [user.name]: user });
+logger.info("Ready", { 1n: user });
+logger.info("Ready", () => { return { user }; });
+logger.info("Ready", function () { return { user }; });
+logger.info({ user });
+logger.error(error);
+logger.info(l => l\`Hello \${user}\`);
+logger.info\`Hello \${user}\`;
+logger.info(["Ready"], { user });
+function run(logger: { info: (...args: unknown[]) => void }) {
+  logger.info("Ready", { user });
+}
+run(console);`;
+    const diagnostics = await lintWithPlugin(source, [unrenderedRule]);
+    assert.deepStrictEqual(
+      diagnostics.filter((d) => d.code === unrenderedRule),
+      [],
+    );
+  },
+);
+
+test(
+  "deno lint: unrendered properties handles accessors, proto keys and duplicates",
+  { skip: skipIfNotDeno },
+  async () => {
+    if (skipIfNotDeno) return;
+    const diagnostics = await lintWithPlugin(
+      `import { getLogger } from "@logtape/logtape";
+const logger = getLogger("test");
+logger.info("Ready", { __proto__: null });
+logger.info("Ready", { "__proto__": null });
+logger.info("Ready", { ["__proto__"]: null });
+logger.info("Ready", { get a() { return 1; }, b() { return 2; } });
+logger.info("Ready", { id: 1, id: 2 });`,
+      [unrenderedRule],
+    );
+    const violations = diagnostics.filter((d) => d.code === unrenderedRule);
+    assert.strictEqual(violations.length, 4);
+    for (const key of ["__proto__", "a", "b", "id"]) {
+      assert.strictEqual(
+        violations.filter((d) => d.message.includes(`Property '${key}'`))
+          .length,
+        1,
+      );
+    }
   },
 );

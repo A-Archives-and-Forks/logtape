@@ -156,6 +156,10 @@ const LINT = {
     },
     { text: "prefer-lazy-evaluation", link: "/lint/prefer-lazy-evaluation" },
     { text: "no-unawaited-log", link: "/lint/no-unawaited-log" },
+    {
+      text: "no-unrendered-properties",
+      link: "/lint/no-unrendered-properties",
+    },
     { text: "require-meta-sink", link: "/lint/require-meta-sink" },
   ],
 };

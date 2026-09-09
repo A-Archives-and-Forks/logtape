@@ -51,8 +51,15 @@ To be released.
     TypeScript type information to distinguish properties, callbacks, and
     `Error` overloads, with local inference as a fallback.  Deno Lint users can
     enable it through the `@logtape/lint/deno/strict` entry point.  [[#199]]
+ -  Added an opt-in `no-unrendered-properties` lint rule to
+    *@logtape/lint* for finding properties that are not referenced by a
+    message template and may be omitted by sinks that output only the
+    message.  The rule is excluded from the `recommended` preset and the
+    default Deno Lint plugin, and is included in
+    `@logtape/lint/deno/strict`.  [[#214]]
 
 [#199]: https://github.com/dahlia/logtape/issues/199
+[#214]: https://github.com/dahlia/logtape/pull/214
 
 
 Version 2.3.4

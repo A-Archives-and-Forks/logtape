@@ -7,8 +7,10 @@ test("plugin: exports meta.name", () => {
   assert.strictEqual(plugin.meta.name, "@logtape/lint");
 });
 
-test("plugin: exports all five rules", () => {
+test("plugin: exports all six rules", () => {
   assert.ok("no-dynamic-message" in rules);
+  assert.ok("no-unrendered-properties" in rules);
+  assert.strictEqual(Object.keys(rules).length, 6);
   assert.ok("no-message-interpolation" in rules);
   assert.ok("prefer-lazy-evaluation" in rules);
   assert.ok("no-unawaited-log" in rules);
@@ -27,6 +29,7 @@ test("plugin: recommended config specifies all rules", () => {
   assert.strictEqual(r["logtape/no-unawaited-log"], "error");
   assert.strictEqual(r["logtape/require-meta-sink"], "warn");
   assert.strictEqual(r["logtape/no-dynamic-message"], undefined);
+  assert.strictEqual(r["logtape/no-unrendered-properties"], undefined);
 });
 
 test("plugin: configs.recommended matches exported recommended", () => {
@@ -146,4 +149,18 @@ await logger.info("Data: {data}.", async () => ({ data: await fetchData() }));`,
     [recommended],
   );
   assert.strictEqual(messages.length, 0);
+});
+
+test("plugin integration: unrendered properties are opt-in", () => {
+  const source = `import { getLogger } from "@logtape/logtape";
+const logger = getLogger("test");
+logger.info("Ready", { id: 1 });`;
+  const linter = new Linter();
+  assert.deepStrictEqual(linter.verify(source, [recommended]), []);
+  const messages = linter.verify(source, [recommended, {
+    rules: { "logtape/no-unrendered-properties": "warn" },
+  }]);
+  assert.strictEqual(messages.length, 1);
+  assert.strictEqual(messages[0].ruleId, "logtape/no-unrendered-properties");
+  assert.strictEqual(messages[0].severity, 1);
 });
